@@ -41,7 +41,7 @@ mat4 R_trackball; //the superposition of all ‘finished’ rotations (matrix)
 mat4 R_trackball_0; //the rotation that is currently being specified using the trackball interface (matrix)
 
 // Input mesh info
-int number_of_triangles, number_of_vertices, number_of_u_vertices;
+int number_of_triangles, number_of_vertices, number_of_u_vertices, number_of_torrus_vertices;
 float x_min, y_min, z_min;
 float x_max, y_max, z_max;
 
@@ -53,9 +53,13 @@ GLfloat fov_angle = 10.0f;
 VertexArray *va_input = NULL;
 Buffer *buf_input_locations = NULL;
 Buffer *buf_input_normals = NULL;
+
 Program *input_program_3d = NULL;
 Program *input_program_env = NULL;
 Program *input_program_torrus = NULL;
+
+Buffer *buf_torrus_points = NULL;
+VertexArray *va_torrus = NULL;
 
 /*--------Menu Options----------*/
 static const int MENU_ENVIRONMENT_TEX = 1;
@@ -106,8 +110,8 @@ void setup_textures()
                       //   do the same in your project - initialize all textures here and 
                       //   keep them on for simplicity; use small numbers for TAPs 
   tTorrus = createRGBTexture2D("textures/Tilable/tilable-1.ppm",0.5,0.25,0.25);
+  tTorrus->repeat();
   tTorrus->linear();        // request bilinear interpolation
-  tTorrus->clampToBorder(); // use border color if texture coordinates out of range
   tTorrus->attach(3);       // attach to TAP #1; must match the binding parameter in the shaders
                         // see `layout (binding=1) uniform sampler2D tex;' in fsh_square.glsl
   tTorrus->on();            // turn on the texture; has to be called after any parameter change - 
@@ -118,7 +122,7 @@ void setup_textures()
 
 void setup_input_buffers()
 {
-  ifstream ifs("sphere.t");
+  ifstream ifs("input.t");
 
   ifs >> number_of_triangles >> number_of_u_vertices;
   number_of_vertices = number_of_triangles * 3;
@@ -227,14 +231,63 @@ void setup_input_buffers()
     j++;
   }
 
-  cout << "Created buffer arrays for loc and normal." << endl;
+  cout << "Creating torrus coordinate mapping." << endl;
+
+  //Torus creation
+  float resolution = 100.f;
+  number_of_torrus_vertices = 2 * 3 * (int) pow(resolution, 2); //2 triangles per square, 3 points per triangle
+  GLfloat *torrusWrapArray = new GLfloat[2 * number_of_torrus_vertices]; //2 numbers per vertex
+  int index = 0;
+  for (float y = 0.f; y < resolution; ++y) {
+    for (float x = 0.f; x < resolution; ++x) {
+      float x0 = x;
+      float x1 = x+1.f;//(x + 1.f) == resolution ? 0 : x + 1.f;
+      float y0 = y;
+      float y1 = y+1.f;//(y + 1.f) == resolution ? 0 : y + 1.f;
+
+      //Triangle 1:
+      torrusWrapArray[index * 2 + 0] = x0/resolution;
+      torrusWrapArray[index * 2 + 1] = y0/resolution;
+      index++;
+
+      torrusWrapArray[index * 2 + 0] = x1/resolution;
+      torrusWrapArray[index * 2 + 1] = y0/resolution;
+      index++;
+
+      torrusWrapArray[index * 2 + 0] = x0/resolution;
+      torrusWrapArray[index * 2 + 1] = y1/resolution;
+      index++;
+
+      //Triangle 2:
+      torrusWrapArray[index * 2 + 0] = x0/resolution;
+      torrusWrapArray[index * 2 + 1] = y1/resolution;
+      index++;
+
+      torrusWrapArray[index * 2 + 0] = x1/resolution;
+      torrusWrapArray[index * 2 + 1] = y0/resolution;
+      index++;
+
+      torrusWrapArray[index * 2 + 0] = x1/resolution;
+      torrusWrapArray[index * 2 + 1] = y1/resolution;
+      index++;
+    }
+  }
+
+  buf_torrus_points = new Buffer(2, number_of_torrus_vertices, torrusWrapArray);
+
+  cout << "Created buffer of torrus mapping coordinates." << endl;
 
   buf_input_locations = new Buffer(3, number_of_vertices, coordnArray);
   buf_input_normals   = new Buffer(3, number_of_vertices, normalArray);
 
+  cout << "Created buffer arrays for loc and normal." << endl;
+
   va_input = new VertexArray;
   va_input->attachAttribute(0,buf_input_locations);
   va_input->attachAttribute(1,buf_input_normals);
+
+  va_torrus = new VertexArray;
+  va_torrus->attachAttribute(0,buf_torrus_points);
 
   cout << "Finished attatching buffers to input vertex array." << endl;
 }
@@ -304,19 +357,25 @@ void draw()
   mat4 view_translate = translate(mat4(), vec3(0.f, 0.f, -1 - view_distance));
 
   // vsh uniforms (including P from above)
-  mat4 MV = view_translate * R_trackball_0 * R_trackball * normalize_scale * normalize_translate;
+  mat4 R_full = R_trackball_0 * R_trackball;
+  mat4 MV = view_translate * R_full * normalize_scale * normalize_translate;
 
-  mat4 NM = R_trackball_0 * R_trackball; // Normal matrix is just the rotation, normals aren't affected by trans and are normalized
+  if (program == MENU_TORRUS) {
+    MV = view_translate * R_full;
+  }
+
+  mat4 NM = R_full; // Normal matrix is just the rotation, normals aren't affected by trans and are normalized
 
   vec3 LL = vec3(0.0f, 0.5f, 0.f); // Lightsource location above viewpoint
 
   //texture normalization
   vec3 texture_translate;
   GLfloat texture_scale;
-      //texture normalization to [0,1]
-      GLfloat xt_trans = -1.f * x_min;
-      GLfloat yt_trans = -1.f * y_min;
-      GLfloat zt_trans = -1.f * z_min;
+  //texture normalization to [0,1]
+  GLfloat xt_trans = -1.f * x_min;
+  GLfloat yt_trans = -1.f * y_min;
+  GLfloat zt_trans = -1.f * z_min;
+
   switch(program) 
   {
     case MENU_ENVIRONMENT_TEX:
@@ -341,7 +400,10 @@ void draw()
   vec3 K_Spec  = vec3(0.5f, 0.5f, 0.5f);
   vec3 Ambient = vec3(0.3f, 0.3f, 0.3f);
   vec3 K_Diff  = vec3(0.4f, 0.4f, 0.4f);
+
+
   //=============== Input Program ================
+
   Program *input_program; 
 
   switch(program)
@@ -358,10 +420,11 @@ void draw()
   }
 
   // Vertex program uniforms
-  input_program->setUniform("MV",&MV[0][0]);
   input_program->setUniform("P",&P[0][0]);
   input_program->setUniform("NM", &NM[0][0]);
   input_program->setUniform("LL", &LL[0]);
+  input_program->setUniform("MV",&MV[0][0]);
+
   // Texture uniforms
   input_program->setUniform("TT", &texture_translate[0]);
   input_program->setUniform("TS", &texture_scale);
@@ -376,11 +439,21 @@ void draw()
 
   input_program->on();
 
-  va_input->sendToPipeline(GL_TRIANGLES, 0, number_of_vertices);
+  if (program == MENU_TORRUS) {
+    // Torrus uniforms
+    GLfloat TOR_R = 0.5f;
+    GLfloat TOR_r = 0.4f;
+    input_program->setUniform("TOR_R", &TOR_R);
+    input_program->setUniform("TOR_r", &TOR_r);
 
+    va_torrus->sendToPipeline(GL_TRIANGLES, 0, number_of_torrus_vertices);
+  } else {
+    va_input->sendToPipeline(GL_TRIANGLES, 0, number_of_vertices);
+  }
   input_program->off();
 
   //=============== Input Program ================
+
 
   // make sure all the stuff is drawn
   glFlush();
@@ -388,7 +461,6 @@ void draw()
   // this exchanges the invisible back buffer with the visible buffer to 
   //  avoid refresh artifacts
   glutSwapBuffers();
-
 }
 
 

@@ -9,6 +9,15 @@
 noperspective in vec3 interp_norm;
 noperspective in vec3 interp_coord;
 
+in vec2 tex_coord;
+
+/* --------------- SAMPLER UNIFORMS ------------- */
+/* The binding layout parameter needs to be the   */
+/* texture attachment point (TAP) the texture     */
+/* is attached to in the host code                */
+/* ---------------------------------------------- */
+
+layout (binding=3) uniform sampler2D tex;
 
 /* ------------- UNIFORM VARIABLES -------------- */
 /* This is `global state' that every invocation   */
@@ -60,5 +69,10 @@ void main()
   float NdotL = (dot(N,L) > 0.0f ? dot(N,L) : 0.0f);
   float NdotH = (dot(N,H) > 0.0f ? dot(N,H) : 0.0f);
 
-  fragcolor = vec3(LightIntensity * (NdotL * K_Diff + pow(NdotH, N_Spec) * K_Spec) + Ambient);
+  vec3 phong_vals = vec3(LightIntensity * (NdotL * K_Diff + pow(NdotH, N_Spec) * K_Spec) + Ambient);
+  vec3 texture_vals = texture(tex,tex_coord).rgb;
+  fragcolor = vec3(
+    phong_vals.x * texture_vals.x,
+    phong_vals.y * texture_vals.y, 
+    phong_vals.z * texture_vals.z);
 }

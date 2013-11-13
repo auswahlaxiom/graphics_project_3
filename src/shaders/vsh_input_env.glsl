@@ -58,7 +58,7 @@ void main()
 
   interp_coord = vec3(worldCoord);
 
-  param = vec2((1.f+interp_norm.x)/2.f, (1.f+interp_norm.y)/2.f);
+  param = vec2((1.f+interp_norm.x)/2.f, 1.f-(1.f+interp_norm.y)/2.f);
 
   // apply projection to location in the world coordinates
   // gl_Position is a built-in output variable of type vec4
